@@ -18,8 +18,8 @@ const int A_CLOSE = 2;
 // For ignoring events sent by Amazon on initial connection. 
 int g_initial_change_event_count;
 
-bool g_curtain_close_state_A = false;
-bool g_curtain_close_state_B = false;
+int g_last_timeout_id_A = -1;
+int g_last_timeout_id_B = -1;
 
 AsyncTimer g_timer;
 
@@ -34,7 +34,9 @@ void setup() {
   // Initialize serial and wait for port to open:
   Serial.begin(9600);
   // This delay gives the chance to wait for a Serial Monitor without blocking if none is found
-  delay(1500); 
+  delay(1500);
+
+  Serial.println("Version 2");
 
   digitalWrite(A_STOP, HIGH);
   digitalWrite(B_STOP, HIGH);
@@ -90,7 +92,8 @@ static bool gotInitialChangeEvent() {
 }
 
 static void processCurtainChange(
-    bool& close_state,
+    CloudSmartPlug& var,
+    int& last_timeout_id,
     int open_button,
     int close_button,
     int stop_button,
@@ -99,26 +102,29 @@ static void processCurtainChange(
     return;
   }
 
-  if (close_state) {
+  if (last_timeout_id != -1) {
+    g_timer.cancel(static_cast<unsigned short>(last_timeout_id));
+  }
+
+  if (var) {
     Serial.println("Open curtains");
     pushButton(open_button);
-    g_timer.setTimeout([=]() {
-      pushButton(stop_button);
-    }, runtime);
   } else {
     Serial.println("Closing curtains");
     pushButton(close_button);
-    g_timer.setTimeout([=]() {
-      pushButton(stop_button);
-    }, runtime);
   }
-  close_state = !close_state;
+
+  last_timeout_id = g_timer.setTimeout([=]() mutable {
+    pushButton(stop_button);
+    last_timeout_id = -1;
+  }, runtime);
 }
 
 void onCurtainsAChange()  {
   Serial.println("Got curtains A event");
   processCurtainChange(
-    g_curtain_close_state_A,
+    curtains_A,
+    g_last_timeout_id_A,
     A_OPEN,
     A_CLOSE,
     A_STOP,
@@ -128,7 +134,8 @@ void onCurtainsAChange()  {
 void onCurtainsBChange()  {
   Serial.println("Got curtains B event");
   processCurtainChange(
-    g_curtain_close_state_B,
+    curtains_B,
+    g_last_timeout_id_B,
     B_OPEN,
     B_CLOSE,
     B_STOP,
