@@ -1,3 +1,9 @@
+// See GitHub for original source
+//
+// I had a lot of trouble getting this to work with the desktop
+// ArduinoIDE so it's probably better to develop + upload with the
+// cloud IDE.
+
 #include <AsyncTimer.h>
 
 #include "arduino_secrets.h"
@@ -15,16 +21,47 @@ const int A_STOP = 4;
 const int A_OPEN = 6;
 const int A_CLOSE = 2;
 
-// For ignoring events sent by Amazon on initial connection. 
-int g_initial_change_event_count;
-
 int g_last_timeout_id_A = -1;
 int g_last_timeout_id_B = -1;
 
 AsyncTimer g_timer;
 
+// For some reason we often get fake events on startup which we need to
+// ignore. The exact number we get varies.
+//
+// The first workaround was just to ignore the first few events, as in the
+// code below. But with this, long after things initially seem to work,
+// events appear to be ignored. I am attributing this to overall system
+// instability leading to random restarts, followed by "too few" initial
+// events.
+//
+// int g_initial_change_event_count;
+// static bool gotInitialChangeEvent() {
+//   if (g_initial_change_event_count == 4) {
+//     return false;
+//   }
+//   Serial.println("Treating as initial event");
+//   if (++g_initial_change_event_count == 4) {
+//     Serial.println("Got all initial change events");
+//     digitalWrite(LED_BUILTIN, HIGH);  
+//   }
+//   return true;
+// }
+//
+// Work around #2: ignore events within an initial time period.
+bool g_ready_to_accept_events;
+
+static bool gotInitialChangeEvent() {
+  if (g_ready_to_accept_events) {
+    return false;
+  }
+  Serial.println("Treating as initial event and ignoring.");
+  return true;
+}
+
 void setup() {
-  g_initial_change_event_count = 0;
+  // g_initial_change_event_count = 0;
+  g_ready_to_accept_events = false;
   
   for (int i = 2; i <= 12; i += 2) {
     pinMode(i, OUTPUT);
@@ -59,6 +96,12 @@ void setup() {
  */
   setDebugMessageLevel(2);
   ArduinoCloud.printDebugInfo();
+
+  g_timer.setTimeout([=]() {
+    Serial.println("Initial event window closed. Further events will be honored.");
+    g_ready_to_accept_events = true;
+    digitalWrite(LED_BUILTIN, HIGH);    
+  }, 1000 * 60);
   
   Serial.println("Setup complete");  
 }
@@ -77,18 +120,6 @@ static void pushButton(int button) {
     Serial.println(button, DEC);
     digitalWrite(button, LOW);
   }, 500);
-}
-
-static bool gotInitialChangeEvent() {
-  if (g_initial_change_event_count == 4) {
-    return false;
-  }
-  Serial.println("Treating as initial event");
-  if (++g_initial_change_event_count == 4) {
-    Serial.println("Got all initial change events");
-    digitalWrite(LED_BUILTIN, HIGH);  
-  }
-  return true;
 }
 
 static void processCurtainChange(
